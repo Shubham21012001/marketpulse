@@ -1,0 +1,105 @@
+version: '3.9'
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.2
+  env_file: .env
+  environment:
+    _PIP_ADDITIONAL_REQUIREMENTS: ""
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./ingestion:/opt/airflow/ingestion
+    - ./logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    container_name: mp_postgres
+    env_file: .env
+    environment:
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Airflow init (runs ONCE, creates DB tables + admin user) ──
+  airflow-init:
+    <<: *airflow-common
+    container_name: mp_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Shivam \
+          --lastname Chaubey \
+          --role Admin \
+          --email admin@marketpulse.com || true
+    restart: on-failure
+
+  # ── Airflow web UI ─────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: mp_airflow_web
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Airflow scheduler ──────────────────────────────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: mp_airflow_scheduler
+    command: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Grafana dashboard ──────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: mp_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SECURITY_ALLOW_EMBEDDING: 'true'
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_FEATURE_TOGGLES_ENABLE: publicDashboards
+      GF_SERVER_ROOT_URL: http://localhost:3000
+      GF_PANELS_DISABLE_SANITIZE_HTML: 'true'
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  grafana_data:

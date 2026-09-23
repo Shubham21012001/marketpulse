@@ -1,0 +1,28 @@
+# Environment variables (contains passwords - never commit)
+.env
+
+# Airflow logs
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# dbt
+dbt/marketpulse_dbt/target/
+dbt/marketpulse_dbt/dbt_packages/
+dbt/marketpulse_dbt/logs/
+
+# Docker volumes
+postgres_data/
+grafana_data/
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+desktop.ini
